@@ -1,70 +1,58 @@
+import json,os,sys,urllib.error,urllib.request
+U=os.getenv("MAKEFUN_ENV_URL")or sys.exit("MAKEFUN_ENV_URL")
+V={"p":100,"n":320,"b":330,"r":500,"q":900,"k":20000}
+S={}
+for i in range(64):
+    r=i//8;f=i%8
+    S[i]={'p':[0,5,10,20,35,60,100,0][r],
+          'n':[-50,-40,-30,-30,-30,-30,-40,-50][r]+[-50,-30,-20,-10,-10,-20,-30,-50][f],
+          'b':[-20,-10,-10,-10,-10,-10,-10,-20][r]+[-20,-10,-10,-10,-10,-10,-10,-20][f],
+          'r':[0,5,10,20,35,60,100,0][r],
+          'q':[0,5,10,20,35,60,100,0][r],
+          'k':[0,0,0,0,0,0,0,0][r]}
 
-import sys,time
-P=1;N=2;B=3;R=4;Q=5;K=6;W=8;B0=16
-V={P:100,N:320,B:330,R:500,Q:900,K:20000}
-MT={
- P:{0:[-8],1:[8]},
- N:{0:[-17,-15,-10,-6,6,10,15,17],
-   1:[-17,-15,-10,-6,6,10,15,17]},
- B:{0:[-9,-7,7,9],1:[-9,-7,7,9]},
- R:{0:[-8,-1,1,8],1:[-8,-1,1,8]},
- Q:{0:[-9,-8,-7,-1,1,7,8,9],1:[-9,-8,-7,-1,1,7,8,9]},
- K:{0:[-9,-8,-7,-1,1,7,8,9],1:[-9,-8,-7,-1,1,7,8,9]}
-}
-def I(p):return 0<=p<64
-def Attacked(v,p):
- f=(v[p]>>4)&1;q=v[p]&7
- if q==K:return False
- for d in MT[q][f]:
-  n=p+d
-  if I(n):
-   c=v[n]
-   if c and ((c>>4)&1)==f and (c&7)!=K:
-    for d2 in MT[(c&7)][(c>>4)&1]:
-     if p==n+d2:return True
- return False
-def Legal(v,p,n):
- b=v[:];b[p]=0;b[n]=c
- c=v[p]
- # Check if K is attacked
- for q2 in range(64):
-  c2=b[q2]
-  if c2 and (c2>>4)&1==(v[4]>>4)&1 and (c2&7)==K:
-   if Attacked(b,q2):return False
- return True
-def E(v):
- s=0
- for p in range(64):
-  c=v[p]
-  if c:
-   f=(c>>4)&1;q=c&7
-   s+=V[q]*(1 if f==0 else -1)
- return s
-b=[0]*64
-b[0]=W|R;b[1]=W|N;b[2]=W|B;b[3]=W|Q;b[4]=W|K
-for i in range(8):b[i+8]=W|P
-b[56]=B0|R;b[57]=B0|N;b[58]=B0|B;b[59]=B0|Q;b[60]=B0|K
-for i in range(8):b[i+48]=B0|P
-print("uci",flush=True)
-print("id name TinyChess",flush=True)
-print("id author Budiyanto",flush=True)
-print("uciok",flush=True)
+def F(fen):
+    b={}
+    for ri,row in enumerate(fen.split()[0].split("/")):
+        x=0
+        for c in row:
+            if c.isdigit():x+=int(c)
+            else:b["abcdefgh"[x]+str(8-ri)]=c;x+=1
+    return b
+
+def Eval(fen,side):
+    b=F(fen);s=0
+    for sq,pc in b.items():
+        v=V[pc.lower()];i=(8-int(sq[1]))*8+ord(sq[0])-97
+        if pc.islower():v=-v
+        s+=v+S[i][pc.lower()]
+    return s if side=="w" else -s
+
+def Make(fen,move):
+    b=F(fen);fr,to=move[:2],move[2:4];pc=b.pop(fr);b[to]=pc
+    if len(move)>4:b[to]=move[4].upper() if pc.isupper() else move[4]
+    return " ".join(["".join(b.get("abcdefgh"[x]+str(r),"") for x in range(8) for r in range(8,0,-1)),"b" if fen.split()[1]=="w" else "w","-","-","0","1"])
+
+def Nega(fen,side,depth,nodes):
+    if depth==0 or nodes<=0:return Eval(fen,side)
+    best=-30000
+    for m in F(fen).keys():
+        if nodes<=0:break
+        v=-Nega(Make(fen,m),"b" if side=="w" else "w",depth-1,nodes-1)
+        if v>best:best=v
+    return best if best>-30000 else Eval(fen,side)
+
+def P(path,body):
+    req=urllib.request.Request(U+path,data=json.dumps(body).encode(),headers={"content-type":"application/json"})
+    try:
+        with urllib.request.urlopen(req)as r:return json.load(r)
+    except urllib.error.HTTPError as e:sys.exit(f"{path}:{e.code}{e.read().decode()}")
+
 while 1:
- l=sys.stdin.readline().strip()
- if not l:continue
- if l=="isready":print("readyok",flush=True)
- elif l=="go":
-  mm=None;mv=-30000
-  for p in range(64):
-   c=b[p]
-   if not c:continue
-   f=(c>>4)&1;q=c&7
-   for d in MT[q][f]:
-    n=p+d
-    if I(n):
-     tg=b[n]
-     if not tg or((tg>>4)&1)!=f:
-      b[p],b[n]=0,c;v=E(b);b[p],b[n]=c,tg
-      if v>mv:mv=v;mm=(p,n)
-  if mm:print(f"bestmove {chr(97+mm[0]%8)}{8-mm[0]//8}{chr(97+mm[1]%8)}{8-mm[1]//8}",flush=True)
- elif l=="quit":break
+    g=P("/game",{})
+    if g["status"]=="done":break
+    while g["status"]=="your_move":
+        bm=max(g["legal_moves"],key=lambda m:Nega(Make(g["fen"],m),"b" if g["fen"].split()[1]=="w" else "w",4,1000))
+        g=P("/move",{"game":g["game"],"move":bm})
+    print(g["outcome"],file=sys.stderr)
+print(g.get("wins",0),g.get("draws",0),g.get("losses",0),file=sys.stderr)
